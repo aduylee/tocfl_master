@@ -69,7 +69,7 @@ Tiếng Trung Phồn thể có cấu trúc chữ viết phức tạp và nguồn
 
 ---
 
-## 📁 Cấu Tr trúc Thư Mục Dự Án (Project Structure)
+## 📁 Cấu Trúc Thư Mục Dự Án (Project Structure)
 
 ```text
 tocfl_master/

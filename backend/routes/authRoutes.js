@@ -1,9 +1,9 @@
 const express = require("express");
 const router = express.Router();
-
-const { register, login } = require("../controllers/authController"); // Thêm hàm login
+const { register, login, socialLogin } = require("../controllers/authController");
 
 router.post("/register", register);
-router.post("/login", login); // Thêm dòng này để khớp với /api/auth/login
+router.post("/login", login);
+router.post("/social-login", socialLogin);
 
 module.exports = router;

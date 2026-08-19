@@ -73,7 +73,14 @@ export default function Login() {
         password: formData.password,
       });
 
+      // ⚠️ Lưu cả Token và User ID vào localStorage
       localStorage.setItem("token", res.data.token);
+      
+      const userId = res.data.user?._id || res.data.userId || res.data.user?.id;
+      if (userId) {
+        localStorage.setItem("user_id", userId);
+      }
+
       alert("Đăng nhập thành công!");
       navigate("/");
     } catch (err: any) {
@@ -95,7 +102,14 @@ export default function Login() {
         email: user.email,
       });
 
+      // ⚠️ Lưu cả Token và User ID vào localStorage
       localStorage.setItem("token", res.data.token);
+      
+      const userId = res.data.user?._id || res.data.userId || res.data.user?.id;
+      if (userId) {
+        localStorage.setItem("user_id", userId);
+      }
+
       alert("Đăng nhập thành công!");
       navigate("/");
     } catch (err: any) {
@@ -198,7 +212,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-xl bg-red-600 py-3 text-white font-semibold text-sm transition hover:bg-red-700 shadow-md shadow-red-600/20 disabled:bg-gray-300 mt-2"
+              className="w-full rounded-xl bg-red-600 py-3 text-white font-semibold text-sm transition hover:bg-red-700 shadow-md shadow-red-600/20 disabled:bg-gray-300 mt-2 cursor-pointer"
             >
               {loading ? "Đang đăng nhập..." : "Đăng nhập"}
             </button>
@@ -215,7 +229,7 @@ export default function Login() {
             <button
               type="button"
               onClick={() => handleSocialLogin(googleProvider)}
-              className="flex w-full items-center justify-center rounded-xl border border-gray-300 bg-white py-2.5 text-sm transition hover:bg-gray-50 shadow-sm"
+              className="flex w-full items-center justify-center rounded-xl border border-gray-300 bg-white py-2.5 text-sm transition hover:bg-gray-50 shadow-sm cursor-pointer"
             >
               <FcGoogle size={20} />
               <span className="ml-2 font-medium text-gray-700">Đăng nhập với Google</span>
@@ -224,7 +238,7 @@ export default function Login() {
             <button
               type="button"
               onClick={() => handleSocialLogin(facebookProvider)}
-              className="flex w-full items-center justify-center rounded-xl border border-gray-300 bg-white py-2.5 text-sm transition hover:bg-blue-50/40 shadow-sm"
+              className="flex w-full items-center justify-center rounded-xl border border-gray-300 bg-white py-2.5 text-sm transition hover:bg-blue-50/40 shadow-sm cursor-pointer"
             >
               <FaFacebook size={20} className="text-blue-600" />
               <span className="ml-2 font-medium text-gray-700">Đăng nhập với Facebook</span>

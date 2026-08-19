@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
+import axios from "axios";
 
 interface VocabItem {
   word: string;
@@ -155,37 +156,28 @@ export default function Quiz() {
     return score;
   };
 
-  // Hàm xử lý nộp bài và lưu kết quả đồng bộ lên Dashboard
-  const handleSubmitQuiz = () => {
+  // Nộp bài: Gửi kết quả lên backend MongoDB & cập nhật tiến độ trong ngày
+  const handleSubmitQuiz = async () => {
     setIsSubmitted(true);
-    const score = calculateScore();
-    const accuracy = Math.round((score / QUIZ_SIZE) * 100);
+    const rawScore = calculateScore();
+    const accuracy = Math.round((rawScore / QUIZ_SIZE) * 100);
+    const userId = localStorage.getItem("user_id");
 
-    try {
-      // 1. Tăng số lượng bài thi đã hoàn thành
-      const currentQuizzes = parseInt(localStorage.getItem("completed_quizzes_count") || "0");
-      localStorage.setItem("completed_quizzes_count", (currentQuizzes + 1).toString());
+    // 1. Tăng đếm bài thi hôm nay ở LocalStorage (phục vụ thanh tiến độ Target)
+    const todayQuiz = parseInt(localStorage.getItem("today_quiz_count") || "0");
+    localStorage.setItem("today_quiz_count", (todayQuiz + 1).toString());
 
-      // 2. Tính toán độ chính xác trung bình tích lũy
-      const oldAvg = parseFloat(localStorage.getItem("average_accuracy") || "0");
-      const newAvg = currentQuizzes === 0 ? accuracy : Math.round((oldAvg * currentQuizzes + accuracy) / (currentQuizzes + 1));
-      localStorage.setItem("average_accuracy", newAvg.toString());
-
-      // 3. Cập nhật mục tiêu bài thi trong ngày (Today Quiz Count)
-      const todayQuiz = parseInt(localStorage.getItem("today_quiz_count") || "0");
-      localStorage.setItem("today_quiz_count", (todayQuiz + 1).toString());
-
-      // 4. Thêm vào danh sách hoạt động gần đây
-      const oldActivities = JSON.parse(localStorage.getItem("recent_activities") || "[]");
-      const newActivity = {
-        title: "Luyện thi / Quiz tổng hợp",
-        time: "Hôm nay, " + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        result: `${score}/${QUIZ_SIZE} câu (${accuracy}%)`
-      };
-      const updatedActivities = [newActivity, ...oldActivities].slice(0, 5);
-      localStorage.setItem("recent_activities", JSON.stringify(updatedActivities));
-    } catch (e) {
-      console.error("Lỗi lưu dữ liệu bài thi vào localStorage", e);
+    // 2. Gửi dữ liệu điểm số thực tế lên API Backend MongoDB
+    if (userId) {
+      try {
+        await axios.post("http://localhost:5000/api/dashboard/quiz-result", {
+          userId,
+          title: "Bài thi tổng hợp TOCFL",
+          score: accuracy, // Lưu tỷ lệ phần trăm chính xác
+        });
+      } catch (error) {
+        console.error("Lỗi khi đồng bộ kết quả thi tới server:", error);
+      }
     }
   };
 
@@ -243,7 +235,7 @@ export default function Quiz() {
             Làm bài thi mới
           </button>
 
-          {/* HIỂN THỊ CHI TIẾT 30 CÂU Ở ĐÂY */}
+          {/* Chi tiết 30 câu hỏi */}
           <div className="text-left border-t border-slate-100 pt-8">
             <h3 className="text-xl font-bold text-gray-800 mb-6">Chi Tiết Đáp Án:</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -293,7 +285,6 @@ export default function Quiz() {
             <span>Đã làm: {Object.keys(selectedAnswers).length}/{QUIZ_SIZE}</span>
           </div>
 
-          {/* Nội dung hiển thị tùy thuộc vào dạng câu hỏi ngẫu nhiên */}
           {currentQ.type === "listening" ? (
             <div className="mb-8 text-center bg-blue-50/40 p-8 rounded-3xl border border-blue-100 flex flex-col items-center">
               <span className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-4">Lắng nghe âm thanh và chọn nghĩa đúng:</span>
@@ -320,7 +311,7 @@ export default function Quiz() {
             </div>
           )}
 
-          {/* Các lựa chọn đáp án */}
+          {/* Lựa chọn đáp án */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
             {currentQ.options.map((option, idx) => {
               const isSelected = userSelected === option;

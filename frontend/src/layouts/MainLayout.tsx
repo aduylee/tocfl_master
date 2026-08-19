@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import ChatAI from "../pages/ChatAI/ChatAI"; // Đường dẫn đúng tới file ChatAI.tsx
 
 export default function MainLayout() {
   const navigate = useNavigate();
@@ -13,7 +14,7 @@ export default function MainLayout() {
     }
 
     // --- LOGIC TỰ ĐỘNG RESET THEO NGÀY ---
-    const todayStr = new Date().toDateString(); // Lấy ngày hiện tại (VD: "Wed Aug 12 2026")
+    const todayStr = new Date().toDateString(); // Lấy ngày hiện tại
     const lastActiveDate = localStorage.getItem("last_active_date");
 
     // Nếu ngày hiện tại khác với ngày lưu gần nhất -> Đã sang ngày mới
@@ -108,6 +109,9 @@ export default function MainLayout() {
       <footer className="bg-white border-t border-gray-100 py-6 text-center text-sm text-gray-400">
         © {new Date().getFullYear()} TOCFL-Master. Nền tảng học tiếng Trung Phồn thể toàn diện.
       </footer>
+
+      {/* Đặt Component AI Chat ở đây */}
+      <ChatAI />
     </div>
   );
 }

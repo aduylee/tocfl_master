@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
+import axios from "axios";
 
 interface VocabItem {
   word: string;
@@ -78,10 +79,26 @@ export default function Flashcard() {
     }
   }, [currentIndex, sessionVocab, isFinished, autoPlaySound]);
 
-  // Hàm ghi nhận kết quả hoàn thành phiên học vào localStorage
+  // Hàm đồng bộ dữ liệu vừa thuộc về Backend MongoDB
+  const syncVocabToBackend = async (countToAdd: number) => {
+    const userId = localStorage.getItem("user_id");
+    if (userId) {
+      try {
+        await axios.post("http://localhost:5000/api/dashboard/vocab-learned", {
+          userId,
+          count: countToAdd,
+        });
+        console.log(`✅ Đã cập nhật +${countToAdd} từ vựng vào MongoDB!`);
+      } catch (err) {
+        console.error("❌ Lỗi đồng bộ từ vựng với MongoDB:", err);
+      }
+    }
+  };
+
+  // Hàm ghi nhận kết quả hoàn thành phiên học vào localStorage và Server
   const handleRecordSessionComplete = (totalLearned: number) => {
     try {
-      // 1. Cộng dồn tổng số từ vựng đã thuộc
+      // 1. Cộng dồn tổng số từ vựng đã thuộc ở localStorage
       const currentTotal = parseInt(localStorage.getItem("learned_vocab_count") || "0");
       const newTotal = currentTotal + totalLearned;
       localStorage.setItem("learned_vocab_count", newTotal.toString());
@@ -119,6 +136,9 @@ export default function Flashcard() {
     const newLearnedCount = learnedCount + 1;
     setLearnedCount(newLearnedCount);
     
+    // Gửi tăng 1 từ lên MongoDB ngay khi người dùng nhấn "Nhớ rồi"
+    syncVocabToBackend(1);
+
     if (currentIndex + 1 < sessionVocab.length) {
       setCurrentIndex(prev => prev + 1);
     } else {
@@ -128,7 +148,7 @@ export default function Flashcard() {
         setCurrentIndex(0);
       } else {
         setIsFinished(true);
-        handleRecordSessionComplete(newLearnedCount); // Lưu dữ liệu khi hoàn thành toàn bộ batch
+        handleRecordSessionComplete(newLearnedCount); // Lưu kết quả tổng hợp vào localStorage
       }
     }
   };

@@ -16,53 +16,23 @@ try {
         const row = rows[i];
         if (!row || row.length === 0) continue;
 
-        let rawLevel = "";
-        let word = "";
-        let pinyin = "";
-        let meaning = "";
+        // Dựa đúng vào hình ảnh Excel thực tế của bạn:
+        // Cột D (index 3): 等級 (Cấp độ)
+        // Cột C (index 2): 詞語 (Chữ Hán)
+        // Cột K (index 10 hoặc 11 tùy dòng): 參考漢語拼音 (Pinyin)
+        // Cột L (index 11 hoặc 12): definition (Nghĩa)
+        const rawLevel = String(row[3] || "").trim();
+        const word = String(row[2] || "").trim();      // Cột C: Chữ Hán chính xác
+        const pinyin = String(row[10] || row[9] || "").trim(); 
+        const meaning = String(row[11] || row[12] || "").trim();
 
-        // Duyệt qua các cột trong dòng để tìm đúng dữ liệu dựa vào đặc điểm
-        for (let j = 0; j < row.length; j++) {
-            const val = String(row[j] || "").trim();
-            // Tìm cột cấp độ chứa từ khóa cấp độ
-            if (val.includes("基礎") || val.includes("進階") || val.includes("高階") || val.includes("Band")) {
-                rawLevel = val;
-            }
-            // Tìm cột Pinyin (thường chứa các ký tự phiên âm kiểu Zhuyin hoặc Pinyin Latinh)
-            if ((val.includes("ㄅ") || val.includes("ㄆ") || /^[a-zA-Z0-9\s/macēéěèàáǎāōóǒòīíǐìūúǔùüǖǘǚǜ]+$/.test(val)) && val.length < 20 && !pinyin && j > 5) {
-                // Ưu tiên gán pinyin ở các cột phía sau
-            }
-        }
+        if (!word) continue;
 
-        // Dựa vào các cột cụ thể từ file Excel chuẩn của TOCFL 14425:
-        // Cột D (index 3 hoặc tương đương) chứa cấp độ
-        rawLevel = String(row[3] || row[2] || ""); 
-        
-        // Tìm chữ Hán thực sự: Duyệt tìm ô nào có chứa ký tự tiếng Trung (phồn thể) và độ dài từ 1-5 ký tự
-        for (let j = 0; j < row.length; j++) {
-            const cellVal = String(row[j] || "").trim();
-            // Regex nhận diện chữ Hán
-            if (/^[\u4e00-\u9fa5]+$/.test(cellVal) && cellVal.length <= 6) {
-                word = cellVal;
-                break;
-            }
-        }
-
-        // Nếu vẫn không tìm thấy word bằng regex, lấy cột H (index 7) hoặc G (index 6) tùy dòng
-        if (!word) {
-            word = String(row[7] || row[6] || "").trim();
-        }
-
-        pinyin = String(row[10] || row[9] || "").trim();
-        meaning = String(row[11] || row[12] || "").trim();
-
-        if (!word || /^\d+$/.test(word)) continue; // Bỏ qua nếu word vẫn là số
-
-        // Phân loại Band chính xác cho A, B, C
+        // Phân loại Band chuẩn xác theo chữ tiếng Trung
         let level = "Band A";
-        if (rawLevel.includes("進階") || rawLevel.includes("B") || rawLevel.includes("中") || rawLevel.includes("Level 3") || rawLevel.includes("Level 4")) {
+        if (rawLevel.includes("進階") || rawLevel.includes("B") || rawLevel.includes("中")) {
             level = "Band B";
-        } else if (rawLevel.includes("高階") || rawLevel.includes("C") || rawLevel.includes("高級") || rawLevel.includes("Level 5")) {
+        } else if (rawLevel.includes("高階") || rawLevel.includes("C") || rawLevel.includes("高級")) {
             level = "Band C";
         }
 
@@ -83,7 +53,7 @@ try {
     const outputFile = path.join(outputDir, 'allVocab.json');
     fs.writeFileSync(outputFile, JSON.stringify(formattedData, null, 2), 'utf8');
 
-    console.log(`✅ Thành công! Đã trích xuất ${formattedData.length} từ vựng chuẩn xác có đủ Band A, B, C.`);
+    console.log(`✅ Thành công! Đã trích xuất ${formattedData.length} từ vựng chuẩn xác.`);
 
 } catch (err) {
     console.error('❌ Lỗi:', err.message);

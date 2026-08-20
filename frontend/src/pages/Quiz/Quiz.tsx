@@ -2,32 +2,24 @@ import { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
 import axios from "axios";
 
-interface VocabItem {
-  word: string;
-  pinyin: string;
-  meaning: string;
-}
-
-interface QuizQuestion {
-  id: number;
-  type: "listening" | "reading";
-  word: string;
-  pinyin: string;
-  correctAnswer: string;
+interface QuestionItem {
+  question: string;
   options: string[];
+  correctIndex: number;
+  explanation?: string;
 }
 
 export default function Quiz() {
-  const [allVocab, setAllVocab] = useState<VocabItem[]>([]);
-  const [questions, setQuestions] = useState<QuizQuestion[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [selectedAnswers, setSelectedAnswers] = useState<{ [key: number]: string }>({});
+  const [questions, setQuestions] = useState<QuestionItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isSubmitted, setIsSubmitted] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(600); // 10 phút = 600 giây
-  const [isPlaying, setIsPlaying] = useState(false);
 
-  const QUIZ_SIZE = 30;
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [selectedOption, setSelectedOption] = useState<number | null>(null);
+  const [score, setScore] = useState(0);
+  const [isAnswered, setIsAnswered] = useState(false);
+  const [isFinished, setIsFinished] = useState(false);
+
+  const QUESTION_COUNT = 10;
 
   const shuffleArray = <T,>(array: T[]): T[] => {
     const arr = [...array];
@@ -38,334 +30,303 @@ export default function Quiz() {
     return arr;
   };
 
-  // Phát âm thanh cho câu hỏi dạng Listening
-  const playAudio = (text: string) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'zh-CN';
-      utterance.rate = 0.75;
-      
-      setIsPlaying(true);
-      utterance.onend = () => setIsPlaying(false);
-      utterance.onerror = () => setIsPlaying(false);
-
-      window.speechSynthesis.speak(utterance);
-    }
-  };
-
   useEffect(() => {
-    async function loadVocab() {
+    async function loadQuizData() {
       try {
         const response = await fetch("/TOCFL_14425_word_list.xlsx");
         const arrayBuffer = await response.arrayBuffer();
         const workbook = XLSX.read(arrayBuffer, { type: "array" });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        
-        const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-        
-        const formattedData: VocabItem[] = rawData.slice(1).map((row) => ({
-          word: String(row[2] || "").trim(), 
-          pinyin: String(row[10] || "").trim(),
-          meaning: String(row[11] || "").trim(),
-        })).filter(item => item.word !== "" && item.meaning !== "");
 
-        setAllVocab(formattedData);
-        initQuiz(formattedData);
+        const rawData: any[][] = XLSX.utils.sheet_to_json(worksheet, {
+          header: 1,
+        });
+
+        // Lọc dữ liệu hợp lệ
+        const formattedData = rawData
+          .slice(1)
+          .map((row) => ({
+            word: String(row[2] || "").trim(),
+            pinyin: String(row[10] || "").trim(),
+            meaning: String(row[11] || "").trim(),
+          }))
+          .filter((item) => item.word !== "" && item.meaning !== "");
+
+        if (formattedData.length < 4) {
+          setLoading(false);
+          return;
+        }
+
+        // Tạo danh sách câu hỏi trắc nghiệm từ từ vựng
+        const shuffledList = shuffleArray(formattedData);
+        const selectedBatch = shuffledList.slice(0, QUESTION_COUNT);
+
+        const generatedQuestions: QuestionItem[] = selectedBatch.map((target) => {
+          // Lấy 3 đáp án sai ngẫu nhiên
+          const wrongPool = formattedData.filter(
+            (item) => item.word !== target.word
+          );
+          const wrongSamples = shuffleArray(wrongPool).slice(0, 3);
+
+          // Trộn đáp án đúng cùng 3 đáp án sai
+          const optionsPool = shuffleArray([
+            target.meaning,
+            ...wrongSamples.map((item) => item.meaning),
+          ]);
+
+          const correctIdx = optionsPool.indexOf(target.meaning);
+
+          return {
+            question: `Từ "${target.word}" (${target.pinyin}) có nghĩa là gì?`,
+            options: optionsPool,
+            correctIndex: correctIdx,
+            explanation: `Từ "${target.word}" có pinyin là "${target.pinyin}", nghĩa chuẩn là: ${target.meaning}`,
+          };
+        });
+
+        setQuestions(generatedQuestions);
         setLoading(false);
       } catch (error) {
-        console.error("Lỗi đọc file Excel:", error);
+        console.error("Lỗi đọc dữ liệu trắc nghiệm:", error);
         setLoading(false);
       }
     }
-    loadVocab();
+
+    loadQuizData();
   }, []);
 
-  const initQuiz = (vocabSource: VocabItem[]) => {
-    if (vocabSource.length === 0) return;
-
-    const selectedVocab = shuffleArray(vocabSource).slice(0, QUIZ_SIZE);
-    
-    const list: QuizQuestion[] = selectedVocab.map((item, index) => {
-      const type: "listening" | "reading" = Math.random() < 0.5 ? "listening" : "reading";
-
-      const wrongOptions = shuffleArray(
-        vocabSource.filter(v => v.meaning !== item.meaning)
-      ).slice(0, 3).map(v => v.meaning);
-
-      const options = shuffleArray([item.meaning, ...wrongOptions]);
-
-      return {
-        id: index,
-        type,
-        word: item.word,
-        pinyin: item.pinyin,
-        correctAnswer: item.meaning,
-        options,
-      };
-    });
-
-    setQuestions(list);
-    setCurrentIndex(0);
-    setSelectedAnswers({});
-    setTimeLeft(600);
-    setIsSubmitted(false);
-  };
-
-  // Đồng hồ đếm ngược 10 phút
-  useEffect(() => {
-    if (loading || isSubmitted) return;
-
-    if (timeLeft <= 0) {
-      handleSubmitQuiz();
-      return;
-    }
-
-    const timer = setInterval(() => {
-      setTimeLeft(prev => prev - 1);
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [timeLeft, isSubmitted, loading]);
-
-  // Tự động phát âm nếu là câu hỏi Listening khi chuyển câu
-  useEffect(() => {
-    if (!loading && questions.length > 0 && !isSubmitted) {
-      const currentQ = questions[currentIndex];
-      if (currentQ.type === "listening") {
-        playAudio(currentQ.word);
-      }
-    }
-  }, [currentIndex, questions, isSubmitted]);
-
-  const handleSelectOption = (option: string) => {
-    setSelectedAnswers({
-      ...selectedAnswers,
-      [currentIndex]: option,
-    });
-  };
-
-  const calculateScore = () => {
-    let score = 0;
-    questions.forEach((q, index) => {
-      if (selectedAnswers[index] === q.correctAnswer) {
-        score += 1;
-      }
-    });
-    return score;
-  };
-
-  // Nộp bài: Gửi kết quả lên backend MongoDB & cập nhật tiến độ trong ngày
-  const handleSubmitQuiz = async () => {
-    setIsSubmitted(true);
-    const rawScore = calculateScore();
-    const accuracy = Math.round((rawScore / QUIZ_SIZE) * 100);
+  // Hàm đồng bộ tiến độ làm bài lên Backend MongoDB
+  const syncQuizProgressToBackend = async () => {
     const userId = localStorage.getItem("user_id");
-
-    // 1. Tăng đếm bài thi hôm nay ở LocalStorage (phục vụ thanh tiến độ Target)
-    const todayQuiz = parseInt(localStorage.getItem("today_quiz_count") || "0");
-    localStorage.setItem("today_quiz_count", (todayQuiz + 1).toString());
-
-    // 2. Gửi dữ liệu điểm số thực tế lên API Backend MongoDB
     if (userId) {
       try {
-        await axios.post("http://localhost:5000/api/dashboard/quiz-result", {
+        await axios.post("http://localhost:5000/api/dashboard/daily-progress", {
           userId,
-          title: "Bài thi tổng hợp TOCFL",
-          score: accuracy, // Lưu tỷ lệ phần trăm chính xác
+          type: "quiz",
+          increment: 1,
         });
-      } catch (error) {
-        console.error("Lỗi khi đồng bộ kết quả thi tới server:", error);
+        console.log("✅ Đã cập nhật +1 bài trắc nghiệm vào MongoDB!");
+      } catch (err) {
+        console.error("❌ Lỗi đồng bộ trắc nghiệm với MongoDB:", err);
       }
     }
   };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  // Hàm ghi nhận kết quả vào localStorage khi hoàn thành
+  const handleRecordQuizComplete = (finalScore: number) => {
+    try {
+      const todayQuizCount = parseInt(
+        localStorage.getItem("today_quiz_count") || "0"
+      );
+      localStorage.setItem("today_quiz_count", (todayQuizCount + 1).toString());
+
+      const oldActivities = JSON.parse(
+        localStorage.getItem("recent_activities") || "[]"
+      );
+      const newActivity = {
+        title: "Hoàn thành Luyện Trắc Nghiệm",
+        time:
+          "Hôm nay, " +
+          new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        result: `Đạt ${finalScore}/${questions.length} câu`,
+      };
+      const updatedActivities = [newActivity, ...oldActivities].slice(0, 5);
+      localStorage.setItem(
+        "recent_activities",
+        JSON.stringify(updatedActivities)
+      );
+    } catch (e) {
+      console.error("Lỗi lưu tiến độ vào localStorage:", e);
+    }
+  };
+
+  const handleSelectOption = (index: number) => {
+    if (isAnswered) return;
+    setSelectedOption(index);
+    setIsAnswered(true);
+
+    if (index === questions[currentIndex].correctIndex) {
+      setScore((prev) => prev + 1);
+    }
+  };
+
+  const handleNextQuestion = () => {
+    if (currentIndex + 1 < questions.length) {
+      setCurrentIndex((prev) => prev + 1);
+      setSelectedOption(null);
+      setIsAnswered(false);
+    } else {
+      setIsFinished(true);
+      const finalScore =
+        selectedOption === questions[currentIndex].correctIndex
+          ? score
+          : score;
+      handleRecordQuizComplete(finalScore);
+      syncQuizProgressToBackend();
+    }
+  };
+
+  const handleRestartQuiz = () => {
+    setLoading(true);
+    setCurrentIndex(0);
+    setSelectedOption(null);
+    setScore(0);
+    setIsAnswered(false);
+    setIsFinished(false);
+
+    // Load lại bộ câu hỏi ngẫu nhiên mới
+    window.location.reload();
   };
 
   if (loading) {
-    return <div className="text-center py-20 text-gray-500 font-medium">Đang tải phòng thi tổng hợp...</div>;
+    return (
+      <div className="text-center py-20 text-gray-500 font-medium">
+        Đang tạo bộ câu hỏi trắc nghiệm...
+      </div>
+    );
+  }
+
+  if (questions.length === 0) {
+    return (
+      <div className="text-center py-20 text-gray-500 font-medium">
+        Không đủ dữ liệu để tạo bài trắc nghiệm.
+      </div>
+    );
   }
 
   const currentQ = questions[currentIndex];
-  const userSelected = selectedAnswers[currentIndex];
+  const progressPercent = Math.round(
+    ((currentIndex + 1) / questions.length) * 100
+  );
 
   return (
-    <div className="max-w-4xl mx-auto p-4 min-h-[75vh] flex flex-col justify-center">
-      {/* Header phòng thi */}
-      <div className="mb-6 bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">📝 Phòng Thi Trực Tuyến (30 Câu - 10 Phút)</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Kết hợp kiểm tra ngẫu nhiên kỹ năng Nghe hiểu & Đọc hiểu</p>
-        </div>
-        {!isSubmitted && (
-          <div className={`px-4 py-2 rounded-2xl font-mono font-bold text-lg border ${
-            timeLeft < 60 ? "bg-red-50 text-red-600 border-red-200 animate-pulse" : "bg-blue-50 text-blue-600 border-blue-100"
-          }`}>
-            ⏳ {formatTime(timeLeft)}
-          </div>
-        )}
+    <div className="flex flex-col items-center justify-center min-h-[75vh] p-4">
+      <div className="mb-6 text-center">
+        <h1 className="text-3xl font-bold text-gray-900">
+          Luyện Tập Trắc Nghiệm
+        </h1>
+        <p className="text-gray-500 mt-1">
+          Kiểm tra vốn từ vựng tiếng Trung qua bộ {questions.length} câu hỏi ngẫu nhiên
+        </p>
       </div>
 
-      {isSubmitted ? (
-        <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-gray-100 text-center animate-fadeIn">
-          <h2 className="text-3xl font-black text-gray-900 mb-2">Kết Quả Bài Thi 🎯</h2>
-          <p className="text-gray-500 mb-6">Bạn đã hoàn thành bài kiểm tra tổng hợp.</p>
-          
-          <div className="bg-slate-50 p-6 rounded-2xl mb-8 flex justify-around items-center">
-            <div>
-              <span className="text-4xl font-black text-blue-600">{calculateScore()} / {QUIZ_SIZE}</span>
-              <p className="text-sm text-slate-500 mt-1">Số câu đúng</p>
+      {!isFinished ? (
+        <div className="w-full max-w-xl bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-gray-100">
+          {/* Progress Bar */}
+          <div className="mb-6">
+            <div className="flex justify-between text-xs font-semibold text-gray-500 mb-1.5">
+              <span>
+                Câu hỏi {currentIndex + 1} / {questions.length}
+              </span>
+              <span>{progressPercent}%</span>
             </div>
-            <div className="border-l border-slate-200 h-12"></div>
-            <div>
-              <span className="text-4xl font-black text-gray-800">{Math.round((calculateScore() / QUIZ_SIZE) * 100)}%</span>
-              <p className="text-sm text-slate-500 mt-1">Độ chính xác</p>
-            </div>
-          </div>
-
-          <button 
-            onClick={() => initQuiz(allVocab)}
-            className="px-7 py-3 mb-8 bg-blue-600 text-white font-bold rounded-2xl shadow-md hover:bg-blue-700 transition cursor-pointer"
-          >
-            Làm bài thi mới
-          </button>
-
-          {/* Chi tiết 30 câu hỏi */}
-          <div className="text-left border-t border-slate-100 pt-8">
-            <h3 className="text-xl font-bold text-gray-800 mb-6">Chi Tiết Đáp Án:</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {questions.map((q, index) => {
-                const userAnswer = selectedAnswers[index];
-                const isCorrect = userAnswer === q.correctAnswer;
-                const isUnanswered = userAnswer === undefined;
-
-                return (
-                  <div key={index} className={`p-4 rounded-2xl border ${isCorrect ? 'bg-emerald-50/50 border-emerald-200' : 'bg-red-50/50 border-red-200'}`}>
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="font-bold text-sm text-gray-500">
-                        Câu {index + 1} <span className="font-normal text-xs ml-1 bg-white px-2 py-0.5 rounded border shadow-sm">{q.type === 'listening' ? '🎧 Nghe' : '📖 Đọc'}</span>
-                      </div>
-                      <div className="text-lg">
-                        {isCorrect ? "✅" : "❌"}
-                      </div>
-                    </div>
-                    
-                    <div className="mb-3">
-                      <span className="text-xl font-black text-slate-900 mr-2">{q.word}</span>
-                      <span className="text-sm text-slate-500 font-medium">[{q.pinyin}]</span>
-                    </div>
-
-                    <div className="space-y-1.5 text-sm">
-                      <div className={`p-2 rounded-lg border ${isCorrect ? 'bg-emerald-100/50 border-emerald-200 text-emerald-800' : 'bg-red-100/50 border-red-200 text-red-800'}`}>
-                        <span className="font-semibold">Bạn chọn:</span> {isUnanswered ? "Chưa chọn" : userAnswer}
-                      </div>
-                      
-                      {!isCorrect && (
-                        <div className="p-2 rounded-lg bg-emerald-100/50 border border-emerald-200 text-emerald-800">
-                          <span className="font-semibold">Đáp án đúng:</span> {q.correctAnswer}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-red-600 transition-all duration-300 ease-out"
+                style={{ width: `${progressPercent}%` }}
+              ></div>
             </div>
           </div>
 
-        </div>
-      ) : (
-        <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-gray-100 flex flex-col">
-          <div className="flex justify-between items-center text-xs font-semibold text-gray-400 mb-6">
-            <span>Câu hỏi {currentIndex + 1} / {QUIZ_SIZE} ({currentQ.type === "listening" ? "🎧 Nghe hiểu" : "📖 Đọc hiểu"})</span>
-            <span>Đã làm: {Object.keys(selectedAnswers).length}/{QUIZ_SIZE}</span>
-          </div>
+          {/* Question Title */}
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-6 text-center">
+            {currentQ.question}
+          </h2>
 
-          {currentQ.type === "listening" ? (
-            <div className="mb-8 text-center bg-blue-50/40 p-8 rounded-3xl border border-blue-100 flex flex-col items-center">
-              <span className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-4">Lắng nghe âm thanh và chọn nghĩa đúng:</span>
-              <button
-                onClick={() => playAudio(currentQ.word)}
-                className={`w-24 h-24 rounded-full flex items-center justify-center text-4xl shadow-lg transition-all duration-300 cursor-pointer ${
-                  isPlaying 
-                    ? "bg-blue-600 text-white animate-pulse scale-105 shadow-blue-200" 
-                    : "bg-white text-blue-600 border border-blue-200 hover:bg-blue-50"
-                }`}
-                title="Nghe lại"
-              >
-                {isPlaying ? "🔊" : "▶️"}
-              </button>
-              <p className="text-xs text-blue-500 font-medium mt-4">
-                {isPlaying ? "Đang phát âm..." : "Nhấn vào nút để nghe lại âm thanh"}
-              </p>
-            </div>
-          ) : (
-            <div className="mb-8 text-center bg-blue-50/40 p-8 rounded-3xl border border-blue-100 flex flex-col items-center">
-              <span className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">CHỌN NGHĨA CHÍNH XÁC CỦA TỪ:</span>
-              <div className="text-5xl font-black text-slate-900 tracking-wide my-3">{currentQ.word}</div>
-              <div className="text-xs text-slate-500 font-medium">[{currentQ.pinyin}]</div>
-            </div>
-          )}
-
-          {/* Lựa chọn đáp án */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
+          {/* Options */}
+          <div className="flex flex-col gap-3 mb-6">
             {currentQ.options.map((option, idx) => {
-              const isSelected = userSelected === option;
+              let btnStyle =
+                "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100";
+
+              if (isAnswered) {
+                if (idx === currentQ.correctIndex) {
+                  btnStyle = "bg-green-100 border-green-500 text-green-800 font-bold";
+                } else if (idx === selectedOption) {
+                  btnStyle = "bg-red-100 border-red-500 text-red-800 font-bold";
+                } else {
+                  btnStyle = "bg-gray-50 border-gray-200 text-gray-400 opacity-60";
+                }
+              }
+
               return (
                 <button
                   key={idx}
-                  onClick={() => handleSelectOption(option)}
-                  className={`p-4 rounded-2xl border text-left text-sm font-medium transition flex items-center gap-3 cursor-pointer ${
-                    isSelected 
-                      ? "bg-blue-50 border-blue-500 text-blue-900 font-bold shadow-sm" 
-                      : "bg-white border-slate-200 text-slate-800 hover:border-blue-300 hover:bg-blue-50/30"
-                  }`}
+                  onClick={() => handleSelectOption(idx)}
+                  disabled={isAnswered}
+                  className={`w-full p-4 rounded-2xl border text-left font-medium transition flex items-center justify-between cursor-pointer ${btnStyle}`}
                 >
-                  <span className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs font-bold ${
-                    isSelected ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500"
-                  }`}>
-                    {String.fromCharCode(65 + idx)}
+                  <span>
+                    <strong className="mr-2">
+                      {String.fromCharCode(65 + idx)}.
+                    </strong>{" "}
+                    {option}
                   </span>
-                  <span className="flex-1">{option}</span>
+                  {isAnswered && idx === currentQ.correctIndex && (
+                    <span className="text-green-600 text-sm font-bold">✓ Đúng</span>
+                  )}
+                  {isAnswered && idx === selectedOption && idx !== currentQ.correctIndex && (
+                    <span className="text-red-600 text-sm font-bold">✗ Sai</span>
+                  )}
                 </button>
               );
             })}
           </div>
 
-          {/* Điều hướng */}
-          <div className="flex justify-between items-center pt-4 border-t border-slate-100">
-            <button
-              disabled={currentIndex === 0}
-              onClick={() => setCurrentIndex(prev => prev - 1)}
-              className={`px-5 py-2.5 rounded-2xl text-sm font-bold border transition cursor-pointer ${
-                currentIndex === 0 
-                  ? "opacity-40 border-slate-100 text-slate-300 cursor-not-allowed" 
-                  : "border-slate-200 text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              ← Câu trước
-            </button>
+          {/* Explanation & Next */}
+          {isAnswered && (
+            <div className="animate-fadeIn">
+              {currentQ.explanation && (
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 mb-6 text-xs sm:text-sm text-slate-600">
+                  <strong className="text-slate-800">Giải thích: </strong>
+                  {currentQ.explanation}
+                </div>
+              )}
 
-            {currentIndex < QUIZ_SIZE - 1 ? (
               <button
-                onClick={() => setCurrentIndex(prev => prev + 1)}
-                className="px-6 py-2.5 bg-blue-600 text-white font-bold rounded-2xl text-sm shadow-md hover:bg-blue-700 transition cursor-pointer"
+                onClick={handleNextQuestion}
+                className="w-full py-3.5 bg-red-600 text-white font-bold rounded-2xl shadow-md hover:bg-red-700 transition cursor-pointer"
               >
-                Câu tiếp theo →
+                {currentIndex + 1 < questions.length
+                  ? "Câu tiếp theo ➔"
+                  : "Xem kết quả 🎉"}
               </button>
-            ) : (
-              <button
-                onClick={handleSubmitQuiz}
-                className="px-7 py-2.5 bg-emerald-600 text-white font-bold rounded-2xl text-sm shadow-md hover:bg-emerald-700 transition cursor-pointer"
-              >
-                Nộp bài thi ✓
-              </button>
-            )}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Result Screen */
+        <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 text-center max-w-md w-full animate-fadeIn">
+          <div className="w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center text-3xl font-black mx-auto mb-4 border border-red-100">
+            {Math.round((score / questions.length) * 100)}%
           </div>
+
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            {score === questions.length
+              ? "Xuất sắc! 🎉"
+              : score >= questions.length / 2
+              ? "Làm tốt lắm! 👍"
+              : "Cố gắng hơn nhé! 💪"}
+          </h2>
+
+          <p className="text-gray-600 mb-6">
+            Bạn đã trả lời đúng{" "}
+            <span className="font-bold text-red-600">
+              {score}/{questions.length}
+            </span>{" "}
+            câu hỏi.
+          </p>
+
+          <button
+            onClick={handleRestartQuiz}
+            className="w-full py-3.5 bg-red-600 text-white font-bold rounded-2xl shadow-md hover:bg-red-700 transition cursor-pointer"
+          >
+            Làm bài trắc nghiệm mới
+          </button>
         </div>
       )}
     </div>
